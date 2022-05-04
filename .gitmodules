@@ -1,0 +1,6 @@
+[submodule "lib/elfio"]
+	path = lib/elfio
+	url = git@github.com:serge1/ELFIO.git
+[submodule "lib/libargparse"]
+	path = lib/libargparse
+	url = git@github.com:kmurray/libargparse.git
