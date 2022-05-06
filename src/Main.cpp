@@ -9,17 +9,19 @@
 #include <thread>
 #include <mutex>
 #include <sstream>
-#include <ReadElf.hpp>
-#include <elfio/elfio_dump.hpp>
-#include <argparse.hpp>
-
+#include "ReadElf.hpp"
+#include "elfio/elfio_dump.hpp"
+#include "argparse.hpp"
+#include "Trace.hpp"
 
 
 using namespace std;
 
 
+#ifndef DUMP_HEX_FORMAT
 #define DUMP_HEX_FORMAT( width ) \
     setw( width ) << setfill( '0' ) << hex << right
+#endif
 #define MEMSIZE         0x0e000000      /* default size is 234MB   */
 
 
@@ -87,6 +89,7 @@ int main(int argc, char **argv) {
   unsigned char *memory = NULL;
   memory = (unsigned char*)malloc(MEMSIZE * sizeof(unsigned char));
   unsigned int program_counter = read_elf(memory, args.filename);
+  Trace trace(memory, program_counter);
 
 
   free(memory);
