@@ -1,7 +1,3 @@
-
-
-
-
 #include <cstdio>
 #include <cstdlib>
 #include <ReadElf.hpp>
@@ -12,7 +8,6 @@
 
 using namespace std;
 using namespace ELFIO;
-
 
 
 unsigned int read_elf(unsigned char *memory, string file_name) {
