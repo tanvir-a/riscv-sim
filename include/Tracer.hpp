@@ -1,5 +1,5 @@
-#ifndef trace_hpp
-#define trace_hpp
+#ifndef tracer_hpp
+#define tracer_hpp
 
 #include <vector>
 #include <cstdint>
@@ -22,21 +22,24 @@ struct Instruction {
     Instruction();
 };
 
-struct Trace {
-    struct _trace {
-        uint64_t program_counter;
-        uint32_t instruction;
-        InstructionType instruction_type;
-        uint64_t memory_address; //if memory instruction (load and store)
-        uint64_t branch_target; //if jump and branch instruction
-    };
-    Trace(unsigned char *memory, uint64_t program_counter);
+struct trace_info {
+    uint64_t program_counter = 0;
+    Instruction instruction;
+    InstructionType instruction_type = INSTR_NOP;
+    uint64_t memory_address = 0; //if memory instruction (load and store)
+    uint64_t branch_target = 0;  //if jump and branch instruction
+};
+
+struct Tracer {
+    Tracer(unsigned char *memory, uint64_t program_counter);
+    std::vector<trace_info> get_trace();
 
 private:
     unsigned char *memory;
     uint64_t program_counter;
+    uint64_t old_program_counter;
     uint64_t reg_file[32];
-    std::vector<_trace> trace;
+    std::vector<trace_info> trace;
 
     uint32_t fetch();
     Instruction decode(uint32_t instr);

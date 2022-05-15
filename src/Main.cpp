@@ -12,7 +12,7 @@
 #include "ReadElf.hpp"
 #include "elfio/elfio_dump.hpp"
 #include "argparse.hpp"
-#include "Trace.hpp"
+#include "Tracer.hpp"
 
 
 using namespace std;
@@ -38,7 +38,7 @@ struct Args {
 int main(int argc, char **argv) {
 
   Args args;
-  auto parser = argparse::ArgumentParser(argv[0], "Risc5 Simualtor");
+  auto parser = argparse::ArgumentParser(argv[0], "Risc5 Simulator");
 
   parser.add_argument(args.filename, "filename")
     .help("Executable file");
@@ -80,7 +80,7 @@ int main(int argc, char **argv) {
 
   {
     cout << "---------------------------\n";
-    cout << "---- riscv Simualtor    ---\n";
+    cout << "---- riscv Simulator    ---\n";
     cout << "---- Version: 0.0       ---\n";
     cout << "---------------------------\n";
   }
@@ -88,9 +88,14 @@ int main(int argc, char **argv) {
 
   unsigned char *memory = NULL;
   memory = (unsigned char*)malloc(MEMSIZE * sizeof(unsigned char));
+  if (memory == NULL) {
+      fprintf(stderr, "malloc: error\n");
+      exit(1);
+  }
   unsigned int program_counter = read_elf(memory, args.filename);
-  Trace trace(memory, program_counter);
 
+  Tracer tracer(memory, program_counter);
+  auto trace = tracer.get_trace();
 
   free(memory);
   return 0;	

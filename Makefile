@@ -1,12 +1,12 @@
 CXX      := -c++
 #CXXFLAGS := -Wall -Wextra -Werror -std=c++11
-CXXFLAGS := -Wall -std=c++11 -O3
+CXXFLAGS := -Wall -std=c++11
 LDFLAGS  := -L/usr/lib -lstdc++ -lm
 BUILD    := ./build
 #OBJ_DIR  := $(BUILD)/objects
 OBJ_DIR  := obj
 APP_DIR  := bin
-TARGET   := sim-riscv
+TARGET   := riscv-sim
 INCLUDE  := -Iinclude
 INCLUDE	 += -Ilib/elfio
 INCLUDE	 += -Ilib/libargparse/src
@@ -36,7 +36,7 @@ build:
 	@mkdir -p $(APP_DIR)
 	@mkdir -p $(OBJ_DIR)
 
-debug: CXXFLAGS += -DDEBUG -g
+debug: CXXFLAGS += -DDEBUG -g -O0
 debug: all
 
 release: CXXFLAGS += -O2

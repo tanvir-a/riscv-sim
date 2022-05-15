@@ -1,8 +1,10 @@
-#include "Trace.hpp"
+#include "Tracer.hpp"
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <cassert>
+
+#define MEMSIZE         0x0e000000      /* default size is 234MB   */
 
 #define ONES(n) ((1 << (n)) - 1)
 
@@ -15,24 +17,27 @@ Instruction::Instruction()
     memset(this, 0, sizeof *this);
 }
 
-Trace::Trace(unsigned char *memory, uint64_t program_counter)
+Tracer::Tracer(unsigned char *memory, uint64_t program_counter)
     : memory(memory)
     , program_counter(program_counter)
 {
     memset(reg_file, 0, sizeof reg_file);
+    reg_file[2] = MEMSIZE; // initialize sp
+    generate();
 }
 
-uint32_t Trace::fetch()
+uint32_t Tracer::fetch()
 {
     uint32_t instr = *(uint32_t *)(memory + program_counter);
+    old_program_counter = program_counter;
     program_counter += 4;
     return instr;
 }
 
-Instruction Trace::decode(uint32_t instr)
+Instruction Tracer::decode(uint32_t instr)
 {
     static EncType enctype_table[32] = {
-        ENC_R,    // 00: LOAD
+        ENC_I,    // 00: LOAD
         ENC_NONE, // 01: LOAD-FP
         ENC_NONE, // 02: custom-0
         ENC_NONE, // 03: MISC-MEM
@@ -60,7 +65,7 @@ Instruction Trace::decode(uint32_t instr)
         ENC_I,    // 19: JALR
         ENC_NONE, // 1A: reserved
         ENC_J,    // 1B: JAL
-        ENC_NONE, // 1C: SYSTEM
+        ENC_I,    // 1C: SYSTEM
         ENC_NONE, // 1D: reserved
         ENC_NONE, // 1E: custom-3
         ENC_NONE, // 1F: > 32b
@@ -156,7 +161,7 @@ Instruction Trace::decode(uint32_t instr)
     return out;
 }
 
-void Trace::execute(const Instruction &instr)
+void Tracer::execute(const Instruction &instr)
 {
     uint64_t rs1u = reg_file[instr.rs1];
     int64_t  rs1  = (int64_t)reg_file[instr.rs1];
@@ -170,8 +175,14 @@ void Trace::execute(const Instruction &instr)
     unsigned char funct7 = instr.funct7;
     unsigned char shamt;
 
+    trace_info tr;
+    tr.program_counter = old_program_counter;
+    tr.instruction = instr;
+
     switch (opcode >> 2) {
     case 0: // LOAD
+        tr.instruction_type = INSTR_LOAD;
+        tr.memory_address = rs1u + imm;
         switch (funct3) {
         case 0: // LB
             *rd = *(char *)(memory + rs1u + imm);
@@ -199,8 +210,9 @@ void Trace::execute(const Instruction &instr)
         }
         break;
     case 4: // OP-IMM
+        tr.instruction_type = INSTR_LOGIC;
         switch (funct3) {
-        case 0: *rd = rs1 + imm; break;
+        case 0: *rd = rs1 + imm; tr.instruction_type = INSTR_ARITH; break;
         case 1: *rd = rs1 << imm; break;
         case 2: *rd = rs1 < imm ? 1 : 0; break;
         case 3: *rd = rs1u < (uint32_t)imm ? 1 : 0; break;
@@ -214,12 +226,15 @@ void Trace::execute(const Instruction &instr)
         }
         break;
     case 5: // AUIPC
-        *rd = program_counter - 4 + imm;
+        *rd = old_program_counter + imm;
+        tr.instruction_type = INSTR_ARITH; // TODO: confirm
         break;
     case 6: // OP-IMM-32
+        tr.instruction_type = INSTR_LOGIC;
         switch (funct3) {
         case 0:
-            *rd = (int)(rs1 + imm);
+            *rd = (int)rs1 + imm;
+            tr.instruction_type = INSTR_ARITH;
             break;
         case 1:
             *rd = (int)rs1 << imm;
@@ -233,6 +248,8 @@ void Trace::execute(const Instruction &instr)
         }
         break;
     case 8: // STORE
+        tr.instruction_type = INSTR_STORE;
+        tr.memory_address = rs1u + imm;
         switch (funct3) {
         case 0: // SB
             *(memory + rs1u + imm) = rs2;
@@ -251,8 +268,9 @@ void Trace::execute(const Instruction &instr)
         }
         break;
     case 12: // OP
+        tr.instruction_type = INSTR_LOGIC;
         switch (funct3) {
-        case 0: *rd = funct7 == 0 ? rs1 + rs2 : rs1 - rs2; break;
+        case 0: *rd = funct7 == 0 ? rs1 + rs2 : rs1 - rs2; tr.instruction_type = INSTR_ARITH; break;
         case 1: *rd = rs1 << (rs2 & ONES(6)); break;
         case 2: *rd = rs1 < rs2 ? 1 : 0; break;
         case 3: *rd = rs1u < rs2u ? 1 : 0; break;
@@ -264,11 +282,14 @@ void Trace::execute(const Instruction &instr)
         break;
     case 13: // LUI
         *rd = imm;
+        tr.instruction_type = INSTR_ARITH; // TODO: confirm
         break;
     case 14: // OP-32
+        tr.instruction_type = INSTR_LOGIC;
         switch (funct3) {
         case 0:
             *rd = funct7 == 0 ? (int)rs1 + (int)rs2 : (int)rs1 - (int)rs2;
+            tr.instruction_type = INSTR_ARITH;
             break;
         case 1:
             *rd = (int)rs1 << (rs2 & ONES(5));
@@ -281,49 +302,69 @@ void Trace::execute(const Instruction &instr)
         }
         break;
     case 24: // BRANCH
+        tr.instruction_type = INSTR_BRANCH;
         switch (funct3) {
         case 0: // BEQ
-            program_counter = rs1 == rs2 ? program_counter - 4 + imm : program_counter;
+            program_counter = rs1 == rs2 ? old_program_counter + imm : program_counter;
             break;
         case 1: // BNE
-            program_counter = rs1 != rs2 ? program_counter - 4 + imm : program_counter;
+            program_counter = rs1 != rs2 ? old_program_counter + imm : program_counter;
             break;
         case 4:
-            program_counter = rs1 < rs2 ? program_counter - 4 + imm : program_counter;
+            program_counter = rs1 < rs2 ? old_program_counter + imm : program_counter;
             break;
         case 5:
-            program_counter = rs1 >= rs2 ? program_counter - 4 + imm : program_counter;
+            program_counter = rs1 >= rs2 ? old_program_counter + imm : program_counter;
             break;
         case 6:
-            program_counter = rs1u < rs2u ? program_counter - 4 + imm : program_counter;
+            program_counter = rs1u < rs2u ? old_program_counter + imm : program_counter;
             break;
         case 7:
-            program_counter = rs1u >= rs2u ? program_counter - 4 + imm : program_counter;
+            program_counter = rs1u >= rs2u ? old_program_counter + imm : program_counter;
             break;
         default:
             assert(0);
         }
+        tr.branch_target = program_counter;
         break;
     case 25: // JALR
+        tr.instruction_type = INSTR_JUMP;
         *rdu = program_counter;
         program_counter = (rs1u + imm) & 0xfffffffffffffffe;
+        tr.branch_target = program_counter;
         break;
     case 27: // JAL
+        tr.instruction_type = INSTR_JUMP;
         *rdu = program_counter;
-        program_counter = program_counter - 4 + imm;
+        program_counter = old_program_counter + imm;
+        tr.branch_target = program_counter;
         break;
     default:
         assert(0);
     }
 
     reg_file[0] = 0;
+
+    trace.push_back(tr);
 }
 
-void Trace::generate()
+void Tracer::generate()
 {
-    for (int i = 0; i < 10; i++) {
+    // hardcode entry point for the fibonacci program
+    program_counter = 0x1d4;
+    // TODO: set program counter to entry point
+
+    for (;;) {
         uint32_t word = fetch();
         Instruction instr = decode(word);
+        if ((instr.opcode >> 2) == 28) { // ECALL/EBREAK
+            break;
+        }
         execute(instr);
     }
+}
+
+std::vector<trace_info> Tracer::get_trace()
+{
+    return trace;
 }
